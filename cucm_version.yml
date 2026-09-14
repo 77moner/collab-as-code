@@ -1,0 +1,41 @@
+---
+- name: Get CUCM version via AXL
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    cucm_host: "{{ lookup('env', 'CUCM_HOST') }}"
+    cucm_user: "{{ lookup('env', 'CUCM_USER') }}"
+    cucm_pass: "{{ lookup('env', 'CUCM_PASS') }}"
+  tasks:
+    - name: Call AXL getCCMVersion
+      ansible.builtin.uri:
+        url: "https://{{ cucm_host }}:8443/axl/"
+        method: POST
+        force_basic_auth: true
+        url_username: "{{ cucm_user }}"
+        url_password: "{{ cucm_pass }}"
+        headers:
+          Content-Type: text/xml
+        body: >
+          <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ns="http://www.cisco.com/AXL/API/1.0">
+            <soapenv:Body>
+              <ns:getCCMVersion>
+                <processNodeName/>
+              </ns:getCCMVersion>
+            </soapenv:Body>
+          </soapenv:Envelope>
+        validate_certs: false
+        return_content: true
+      register: response
+
+    - name: Parse the version out of the XML response
+      community.general.xml:
+        xmlstring: "{{ response.content }}"
+        xpath: //version
+        content: text
+      register: parsed
+
+    - name: Show the version
+      debug:
+        msg: "CUCM version is {{ parsed.matches[0].version }}"
