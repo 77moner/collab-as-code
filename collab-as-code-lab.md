@@ -2,7 +2,7 @@
 
 **Who this is for:** You manage Cisco Collaboration (Webex Calling, CUCM, Control Hub, workspaces) and have never used an IDE, Python, or Git. You want real hands-on reps, not theory.
 
-**How this lab works:** 9 modules, each with numbered exercises. Every exercise builds on the artifact from the previous one — by the end you'll have a working Python/Git project that reads and writes real Webex **and** CUCM data, plus Ansible and Terraform versions of the same task. Don't skip exercises; later ones assume the files from earlier ones exist. Modules 1-6 use Webex (cloud, REST/JSON — the easier starting point); Modules 7-9 shift to CUCM (on-prem, SOAP/XML — a different shape, same underlying ideas).
+**How this lab works:** 10 modules, each with numbered exercises. Every exercise builds on the artifact from the previous one — by the end you'll have a working Python/Git project that reads and writes real Webex **and** CUCM data, plus Ansible and Terraform versions of the same task, and hands-on experience with a multi-engineer Git workflow. Don't skip exercises; later ones assume the files from earlier ones exist. Modules 1-6 use Webex (cloud, REST/JSON — the easier starting point); Modules 7-9 shift to CUCM (on-prem, SOAP/XML — a different shape, same underlying ideas); Module 10 simulates a second engineer collaborating on the same repo.
 
 **Time budget:** ~22-28 hours total, doable in evenings/weekends over 4-5 weeks.
 
@@ -653,15 +653,20 @@ ucm = axl(
 
 users = ucm.get_users()
 for user in users:
-    print(user["userid"])
+    print(f"User ID: {user.userid}, Last Name: {user.lastName}, First Name: {user.firstName}")
 ```
 Run it. **Compare to `webex_me.py` from Exercise 3.3** line by line: same shape — load credentials, authenticate, call, loop over the result. The transport underneath (SOAP vs REST) is now hidden from you by the library, exactly like `requests` hid raw HTTP from you.
 
 ### Exercise 8.3 — Look up one phone
 ```python
-phone = ucm.get_phone("SEP001122334455")   # use a real device name from your sandbox
-print(phone["description"])
-print(phone["callingSearchSpaceName"])
+phone = ucm.get_phones("SEPAAABBBCCCDDD")
+if phone:
+    # Assuming phone is a list of objects based on the traceback error
+    p = phone[0]
+    print(f"Description: {p.description}")
+    print(f"CSS: {p.callingSearchSpaceName}")
+else:
+    print("Phone not found.")
 ```
 Run it against a device that exists in your sandbox topology (check the sandbox's device list/topology diagram for a real name).
 
@@ -758,6 +763,93 @@ git push
 ## A note on Terraform and CUCM
 
 You'll notice there's no CUCM equivalent of Module 5's Webex provider exercise. That's not an oversight — **there is no official Terraform provider for CUCM**, and that's realistic, not a gap in your learning. Terraform's model (track a resource's full lifecycle, diff desired vs. actual state, tear it down cleanly) fits cloud/API-native platforms like Webex well. On-prem AXL-based systems like CUCM are almost universally automated with **Ansible or plain Python** instead — because most CUCM automation is "run this provisioning task" (imperative), not "declare this resource should permanently exist and be reconciled" (declarative). Knowing *when a tool doesn't apply* is as useful as knowing when it does — if you ever see a "Terraform for CUCM" claim, treat it skeptically and verify.
+
+---
+
+## Module 10 — Collaborating with Git (Simulating a Second Engineer)
+
+Goal: everything so far has been solo. Real "as code" work happens on a team, where changes land through branches, pull requests, and code review before hitting the shared `main`. You'll simulate this with two local clones of the same repo — no second person or GitHub account needed.
+
+### Exercise 10.1 — Set up "Engineer B"
+Your existing folder (with Modules 1-9 committed) is **Engineer A**. Clone the same repo into a second folder to act as **Engineer B**, joining the project fresh:
+```
+cd ~/                     # anywhere outside your existing repo folder
+git clone https://github.com/YOUR-USERNAME/collab-as-code.git collab-as-code-engineer2
+cd collab-as-code-engineer2
+```
+Give this clone its own local identity (scoped to this folder only, not `--global`, so your real identity elsewhere is untouched):
+```
+git config user.name "Engineer Two"
+git config user.email "engineer2@example.com"
+```
+**Checkpoint:** `git log -1` in this folder shows the same last commit as your original repo — it's a true clone of shared history.
+
+### Exercise 10.2 — Engineer B builds on a branch
+```
+git checkout -b feature/cucm-automation
+```
+If you haven't already done Modules 7-9 work in this folder, do (or redo) a small piece of it here — e.g. create `cucm_list_users.py` from Exercise 8.2, with its own `.env` (never committed, per Exercise 3.4's habit). Commit and push the branch:
+```
+git add cucm_list_users.py
+git commit -m "Add CUCM user listing via ciscoaxl"
+git push -u origin feature/cucm-automation
+```
+**Why this matters:** this is exactly what happens when a teammate picks up new work — they branch, they don't touch `main` directly, and their changes are invisible to everyone else until pushed and reviewed.
+
+### Exercise 10.3 — Open and review a pull request
+On GitHub, open a PR from `feature/cucm-automation` into `main`. Open the **"Files changed"** tab and read it the way you'd review a colleague's work — look for a hardcoded secret, an unclear commit message, or logic you'd question. Leave at least one comment on a line, even though it's your own PR.
+
+**Checkpoint:** you can point to one thing in the diff you'd have asked a real colleague to change before merging.
+
+### Exercise 10.4 — Merge and sync back as Engineer A
+Merge the PR on GitHub. Then, back in your **original** folder:
+```
+cd ~/collab-as-code
+git checkout main
+git pull
+```
+Confirm `cucm_list_users.py` now exists here, even though "Engineer A" never wrote it directly — it arrived purely through the shared Git history.
+
+### Exercise 10.5 — Force and resolve a merge conflict
+This is the mechanic behind every "merge conflict" you'll hear referenced on a real team — worth doing once deliberately so it's not scary later.
+
+1. **As Engineer A**, edit `README.md` — add a line under the Scripts section — then commit and push straight to `main`:
+   ```
+   git add README.md
+   git commit -m "Engineer A: update README"
+   git push
+   ```
+2. **As Engineer B** (`collab-as-code-engineer2`), *before* pulling that change, edit the exact same line in `README.md` differently, and commit:
+   ```
+   git add README.md
+   git commit -m "Engineer B: update README"
+   ```
+3. Now try to bring in Engineer A's change:
+   ```
+   git checkout main
+   git pull origin main
+   ```
+   Git reports a conflict and marks the file:
+   ```
+   <<<<<<< HEAD
+   Engineer B's line
+   =======
+   Engineer A's line
+   >>>>>>> origin/main
+   ```
+4. Open `README.md`, decide what the final combined line should say, delete the `<<<<<<<`, `=======`, `>>>>>>>` markers by hand, save, then:
+   ```
+   git add README.md
+   git commit -m "Resolve README merge conflict"
+   git push
+   ```
+
+**Why this matters:** a merge conflict isn't Git being broken — it's Git correctly refusing to silently pick a winner when two people changed the same lines, and asking a human to decide. This is precisely the situation you'd hit if two engineers both edited an Ansible variable file or a Terraform `.tf` resource in the same week.
+
+**Checkpoint — you're done when you can:**
+- Explain why Engineer B's branch was invisible to Engineer A until it was pushed and merged
+- Read a GitHub PR diff and identify at least one thing worth a review comment
+- Resolve a merge conflict by hand without panicking at the `<<<<<<<` markers
 
 ---
 
